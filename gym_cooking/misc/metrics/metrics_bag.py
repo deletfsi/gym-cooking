@@ -1,11 +1,12 @@
 import dill as pickle
 import copy
+import os
 
 class Bag:
     def __init__(self, arglist, filename):
         self.data = {}
         self.arglist = arglist
-        self.directory = "misc/metrics/pickles/"
+        self.directory =  "C:/Users/dele/Desktop/Github/gym-cooking/gym_cooking/misc/metrics/pickles/"  # "misc/metrics/pickles/"
         self.filename = filename
         self.set_general()
 
@@ -55,6 +56,7 @@ class Bag:
 
         incomplete_subtasks = set(self.data["all_subtasks"])
         for a in real_agents:
+            # 获取每个智能体认为未完成的子任务集合 ,与全局未完成集合取交集，保留那些 *所有* 智能体都认为未完成的任务
             incomplete_subtasks = incomplete_subtasks & set(a.incomplete_subtasks)
         self.data["num_completed_subtasks"].append(self.data["num_total_subtasks"] - len(incomplete_subtasks))
 
@@ -65,5 +67,6 @@ class Bag:
             print("{}: {}\n".format(k, v))
         self.data["num_completed_subtasks_end"] = 0 if len(self.data["num_completed_subtasks"]) == 0 else self.data["num_completed_subtasks"][-1]
         print('completed {} / {} subtasks'.format(self.data["num_completed_subtasks_end"], self.data["num_total_subtasks"]))
+        os.makedirs(self.directory, exist_ok=True)
         pickle.dump(self.data, open(self.directory+self.filename+'.pkl', "wb"))
         print("Saved to {}".format(self.directory+self.filename+'.pkl'))

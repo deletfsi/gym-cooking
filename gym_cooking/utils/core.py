@@ -77,6 +77,10 @@ class Counter(GridSquare):
         return GridSquare.__hash__(self)
 
 class AgentCounter(Counter):
+    """
+    一种特殊的 Counter，用于在 Level-0 规划时临时替换其他智能体的位置。
+    它表示一个被“冻结”的智能体占据的位置，是可碰撞的障碍物。
+    """
     def __init__(self, location):
         GridSquare.__init__(self,"Agent-Counter", location)
         self.rep = Rep.COUNTER
@@ -155,6 +159,12 @@ class Object:
         return ObjectRepr(name=self.full_name, location=self.location, is_held=self.is_held)
 
     def update_names(self):
+        """
+        根据当前 contents 更新 self.name 和 self.full_name。
+        名称由内部物品按字母顺序排序后用 '-' 连接。
+        self.name: 只包含基础物品名称 (e.g., "Lettuce-Plate-Tomato")
+        self.full_name: 包含物品状态 (e.g., "ChoppedLettuce-Plate-FreshTomato")
+        """
         # concatenate names of alphabetically sorted items, e.g.
         sorted_contents = sorted(self.contents, key=lambda c: c.name)
         self.name = "-".join([c.name for c in sorted_contents])
@@ -168,6 +178,7 @@ class Object:
         return self.contents[0].needs_chopped()
 
     def is_chopped(self):
+        # 如果包含盘子，或者任何一个 Food 没到 Chopped 状态，则返回 False
         for c in self.contents:
             if isinstance(c, Plate) or c.get_state() != 'Chopped':
                 return False
@@ -209,6 +220,8 @@ class Object:
 
 
 def mergeable(obj1, obj2):
+    # 条件1: 最多只能有一个盘子
+    # 条件2: 所有非 Plate 的内容 (即 Food) 必须处于其最终状态 (done)
     # query whether two objects are mergeable
     contents = obj1.contents + obj2.contents
     # check that there is at most one plate
@@ -270,10 +283,20 @@ class Food:
         self.full_name = '{}{}'.format(self.get_state(), self.name)
 
     def needs_chopped(self):
+        """检查食物是否需要被切 (即下一个状态是否是 Chopped)。"""
+        # 使用取模运算 (%) 来处理状态序列循环 (虽然当前序列不循环)
+        # 检查 state_seq 中当前索引的下一个状态是否是 FoodState.CHOPPED
+        # 例如: 当前是 FRESH (index 0), state_seq[1] 是 CHOPPED -> True
+        # 例如: 当前是 CHOPPED (index 1), state_seq[0] 是 FRESH -> False
         return self.state_seq[(self.state_index+1)%len(self.state_seq)] == FoodState.CHOPPED
 
     def done(self):
+        """检查食物是否处于其最终状态。"""
+        # 检查当前状态索引是否是 state_seq 的最后一个索引
         return (self.state_index % len(self.state_seq)) == len(self.state_seq) - 1
+        # 例如: 对 FRESH_CHOPPED 序列:
+        # FRESH (index 0): 0 == 1 -> False
+        # CHOPPED (index 1): 1 == 1 -> True
 
     def update_state(self):
         self.state_index += 1

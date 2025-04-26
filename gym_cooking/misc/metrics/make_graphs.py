@@ -11,11 +11,14 @@ sys.path.append("../..")
 import recipe_planner
 
 
+# 食谱名称列表
 recipes = [
         "tomato",
         "tl",
         "salad"
     ]
+
+#  不同食谱对应的总子任务数量 (用于计算完成率)
 total_num_subtasks = {
         "tomato": 3,
         "tl": 6,
@@ -109,6 +112,8 @@ def run_main():
 def compute_stats(path_pickles, num_agents):
     for model in models:
         num_shuffles = []; num_timesteps = []; num_collisions = []; frac_completed = []
+        
+         # 使用 itertools.product 生成所有食谱、地图、种子的组合
         for recipe, map_, seed in itertools.product(recipes, maps, seeds):
             fname = '{}_{}_agents{}_seed{}{}.pkl'.format(map_, recipe, num_agents, seed, model)
             if os.path.exists(os.path.join(path_pickles, fname)):
@@ -133,6 +138,17 @@ def compute_stats(path_pickles, num_agents):
 
 
 def import_data(key, path_pickles, num_agents):
+    """
+    从所有相关的 .pkl 文件中加载指定类型 (key) 的数据，并整合成 Pandas DataFrame。
+
+    Args:
+        key (str): 要提取的数据类型 ('time_steps', 'completion', 'shuffles')。
+        path_pickles (str): 存储 .pkl 文件的目录路径。
+        num_agents (int): 实验中的智能体数量。
+
+    Returns:
+        pd.DataFrame: 包含加载和处理后数据的 DataFrame。
+    """
     df = list()
 
     for recipe, model, map_, seed in itertools.product(recipes, models, maps, seeds):

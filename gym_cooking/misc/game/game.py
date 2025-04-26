@@ -54,6 +54,10 @@ class Game:
 
 
     def on_render(self):
+        """
+        渲染当前游戏状态到屏幕 Surface。
+        按照背景 -> 静态格子 -> 地上物品 -> 智能体及持有物的顺序绘制。
+        """
         self.screen.fill(Color.FLOOR)
         objs = []
         
@@ -79,6 +83,13 @@ class Game:
 
 
     def draw_gridsquare(self, gs):
+        """
+        绘制单个静态格子 (Counter, Delivery, Cutboard)。
+        Floor 格子由背景填充处理，这里不绘制。
+
+        Args:
+            gs (GridSquare): 要绘制的格子对象。
+        """
         sl = self.scaled_location(gs.location)
         fill = pygame.Rect(sl[0], sl[1], self.scale, self.scale)
 
@@ -104,11 +115,25 @@ class Game:
 
 
     def draw_agent(self, agent):
+        """
+        绘制单个智能体及其持有的物品。
+
+        Args:
+            agent (SimAgent): 要绘制的智能体对象。
+        """
         self.draw('agent-{}'.format(agent.color),
             self.tile_size, self.scaled_location(agent.location))
         self.draw_agent_object(agent.holding)
 
     def draw_agent_object(self, obj):
+        """
+        绘制智能体当前持有的物品。
+        持有的物品通常绘制在智能体格子的右下角，并按 holding_scale 缩放。
+        特殊处理持有盘子的情况，会先画盘子，再画盘子里的内容。
+
+        Args:
+            obj (Object or None): 智能体持有的物品对象，或 None。
+        """
         # Holding shows up in bottom right corner.
         if obj is None: return
         if any([isinstance(c, Plate) for c in obj.contents]): 
@@ -121,6 +146,14 @@ class Game:
             self.draw(obj.full_name, self.holding_size, self.holding_location(obj.location))
 
     def draw_object(self, obj):
+        """
+        绘制放在地上或台面上的物品 (未被智能体持有)。
+        物品通常绘制为完整格子大小。
+        特殊处理盘子，会先画盘子，再画盘子里的内容。
+
+        Args:
+            obj (Object or None): 要绘制的物品对象，或 None。
+        """
         if obj is None: return
         if any([isinstance(c, Plate) for c in obj.contents]): 
             self.draw('Plate', self.tile_size, self.scaled_location(obj.location))

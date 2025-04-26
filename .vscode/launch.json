@@ -1,0 +1,28 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Gym Cooking: DC+FB Salad", // 配置名称，可以自定义
+            "type": "python",                      // 调试器类型
+            "request": "launch",                   // 启动模式
+            "program": "${workspaceFolder}/gym_cooking/main.py", // 要调试的主文件路径
+            "console": "integratedTerminal",      // 输出到集成终端
+            "args": [                              // 要传递的命令行参数列表
+                "--num-agents",
+                "2",
+                "--seed",
+                "1",
+                "--level",
+                "partial-divider_salad",
+                "--model1",
+                "dc",
+                "--model2",
+                "fb" ,
+                "--record"
+            ],
+            "justMyCode": true,                   // 仅调试你的代码（通常保持 true）
+            "cwd": "${workspaceFolder}/gym_cooking" // 设置正确的工作目录！
+        }
+        // 如果已有其他配置，将上面的配置块加在它们旁边，用逗号分隔
+    ]
+}

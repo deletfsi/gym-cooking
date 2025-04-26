@@ -5,7 +5,7 @@ levels=("full-divider_salad" "partial-divider_salad" "open-divider_salad" "full-
 models=("bd" "dc" "fb" "up" "greedy")
 
 nagents=2
-nseed=20
+nseed=9
 
 for seed in $(seq 1 1 $nseed); do
     for level in "${levels[@]}"; do
