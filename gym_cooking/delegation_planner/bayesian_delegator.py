@@ -106,7 +106,7 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
         一个砧板 Cutboard 位于 (2, 5)。
         假设从 (2, 1) 到 (6, 1) 再到 (2, 5) 的最短路径距离是 10 (先走 4 步拿到番茄，再走 6 步到砧板)。
         假设世界周长 env.world.perimeter 是 30。
-        调用: subtask_alloc_is_doable(env, subtask=Chop(Tomato), subtask_agent_names=('agent-1',))
+        调用: subtask alloc_is_doable(env, subtask=Chop(Tomato), subtask_agent_names=('agent-1',))
 
         执行流程:
 
@@ -115,12 +115,12 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
         get_subtask_obj 返回 start_obj = FreshTomato, goal_obj = ChoppedTomato。
         get_subtask_action_obj 返回 Cutboard 对象。
         env.get_AB_locs_given_objs (针对 Chop) 返回 A_locs = [(6, 1)] (新鲜番茄的位置), B_locs = [(2, 5)] (砧板的位置)。
-        env.world.get_lower_bound_between 被调用，参数包括 agent_locs=((2, 1),), A_locs=((6, 1),), B_locs=((2, 5),)。
-        get_lower_bound_between_helper (对于单智能体 Chop) 计算从 (2, 1) 到 (6, 1) 再到 (2, 5) 的距离，假设结果是 distance = 10。
+        env.world.get lower_bound_between 被调用，参数包括 agent_locs=((2, 1),), A_locs=((6, 1),), B_locs=((2, 5),)。
+        get lower_bound_between_helper (对于单智能体 Chop) 计算从 (2, 1) 到 (6, 1) 再到 (2, 5) 的距离，假设结果是 distance = 10。
         最后比较 10 < 30，结果为 True。
         结论: 这个子任务分配是可行 (doable) 的
 
-        反例: 如果番茄被完全围起来，get_lower_bound_between_helper 找不到路径 （比如 被完全切分的厨房）
+        反例: 如果番茄被完全围起来，get lower_bound_between_helper 找不到路径 （比如 被完全切分的厨房）
         
         Return whether subtask allocation (subtask x subtask_agent_names) is doable
         in the current environment state."""
@@ -163,7 +163,7 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
         """ level 0 , 只考虑自己当前完成当前任务的 成本， 值越小越好
         这个函数的主要目的是估算对于一个特定的子任务分配（即让 subtask_agent_names 执行 subtask），
         从当前观察到的状态 obs 开始，完成该子任务所需的最小预期成本（或负的奖励，即价值的下界）。
-        这个估算值主要被用在 get_spatial_priors 函数中，用来计算空间先验概率：
+        这个估算值主要被用在 get spatial_priors 函数中，用来计算空间先验概率：
         成本越低（价值下界越接近0或更高），完成任务被认为越“容易”或越“近”，因此该分配获得更高的先验概率
         
         Return the value lower bound for a subtask allocation
@@ -174,22 +174,14 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
         if subtask is None:
             return 0
         
-        '''     #   调用导航规划器（主要目的是触发其内部状态设置和价值计算）
-                #    注意：这里的 _ 表明 get_next_action 的返回值（即动作）被忽略了。
-                #    关键在于调用这个函数会配置 self.planner 处理当前的 obs, subtask, 和 subtask_agent_names。
-                #    传入空的 other_agent_planners={} 表示这里是为了获取基础成本估算，进行 Level-0 规划。
+        '''     # 这个是在 算 prior ， 传入空的 other_agent_planners={} 表示这里是为了获取基础成本估算，进行 Level-0 规划。
                 # 在估算这个子任务的成本时，它不考虑其他智能体的行为，只是单纯地看当前分配的 subtask_agent_names 完成 subtask 的基础成本是多少。'''
         _ = self.planner.get_next_action(
                 env=obs,
                 subtask=subtask,
                 subtask_agent_names=subtask_agent_names,
                 other_agent_planners={})
-        
-        ''' #    获取价值下界 (self.planner.v_l[...]): 
-            #    在调用 get_next_action 后，self.planner 内部的状态 (cur_state) 和价值函数 (v_l)
-            #    已经被更新（或至少被计算过）以反映传入的 obs 和 subtask。
-            #    这里直接从规划器的 v_l 字典中读取对应状态和子任务的价值下界。
-            #    代码直接读取这个值。这个值代表了 BRTDP 算法当前对完成该子任务所需总成本的最低估计'''
+         
         value = self.planner.v_l[(self.planner.cur_state.get_repr(), subtask)]
         return value
 
@@ -199,40 +191,8 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
 
     def prune_subtask_allocs(self, observation, subtask_alloc_probs):
         """
-        这个函数的作用是对初步生成的子任务分配假设空间 (subtask_alloc_probs) 进行清理和过滤（剪枝）。
-        它移除了那些基于当前环境状态 observation 判断为不合理或不可能的分配方案，确保后续的贝叶斯推理只在有效的假设上进行。
-        
-        例子:
-
-        假设 subtask_alloc_probs 初始包含以下几种分配方案（为了简化，只展示部分）：
-
-        alloc1 = [(Chop(T), (A1,)), (Chop(L), (A2,))]
-        alloc2 = [(Chop(T), (A1,)), (Get(Plate), (A2,))] # 假设 Get(Plate) 在当前状态不可行 (比如没有盘子)
-        alloc3 = [(Chop(T), (A1,)), (None, (A2, A3))] # 假设有 A1, A2, A3 三个智能体
-        alloc4 = [(None, (A1,)), (None, (A2,))]
-        执行 prune_subtask_allocs(observation, subtask_alloc_probs):
-
-        处理 alloc1:     结果: alloc1 保留
-        检查 t1 = (Chop(T), (A1,))：假设 subtask_alloc_is_doable 返回 True。
-        检查 t2 = (Chop(L), (A2,))：假设 subtask_alloc_is_doable 返回 True。
-         
-        
-        处理 alloc2: 结果: alloc2 被删除。
-        检查 t1 = (Chop(T), (A1,))：假设 subtask_alloc_is_doable 返回 True。
-        检查 t2 = (Get(Plate), (A2,))：假设 subtask_alloc_is_doable 返回 False (因为盘子不可获取)。 =》t2 不可行 break
-         
-        处理 alloc3:    =》t3 不可行 break
-        检查 t1 = (Chop(T), (A1,))：假设 subtask_alloc_is_doable 返回 True。
-        检查 t2 = (None, (A2, A3))：   =>   不可行 break
-
-        处理 alloc4:  =>   None：all([t.subtask is None for t in alloc4])  , t4 不可行 break
-        检查 t1 = (None, (A1,))：通过可行性和联合 None 检查。
-        检查 t2 = (None, (A2,))：通过可行性和联合 None 检查。
-        
-        最终，函数返回的 subtask_alloc_probs 对象将只包含 alloc1 (以及其他所有通过检查的分配方案)。
-        这个剪枝过程确保了后续的推理和决策是基于一个更合理、更符合当前世界状况的假设集合
-        
-
+        这个函数的作用是对初步生成的子任务分配假设空间 (subtask_alloc_probs) 进行清理和过滤（剪枝） 
+        它移除了那些基于当前环境状态 observation 判断为不合理或不可能的分配方案，确保后续的贝叶斯推理只在有效的假设上进行 
         Removing subtask allocs from subtask_alloc_probs that are
         infeasible or where multiple agents are doing None together."""
         for subtask_alloc in subtask_alloc_probs.enumerate_subtask_allocs():
@@ -275,7 +235,7 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
         probs.normalize()
 
         if priors_type == 'spatial':
-            ''' 如果是空间先验 (BD, FB, DC 模型)  调用 get_spatial_priors 重新加权 probs 中的概率 
+            ''' 如果是空间先验 (BD, FB, DC 模型)  调用 get spatial_priors 重新加权 probs 中的概率 
                基于任务的估计成本/距离（成本低的先验概率高）, 将加权后的（非均匀）分布赋值给 self.probs'''
             self.probs = self.get_spatial_priors(obs, probs)
         elif priors_type == 'uniform':
@@ -307,60 +267,17 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
                                      已根据空间成本加权（但尚未归一化）。
                                      
           # 根据成本（距离）的倒数进行加权。成本越低，权重越高。
-        # 遍历 some_probs 中所有可能的子任务分配方案 (subtask_alloc)
-        
-        假设：
-
-        有 2 个智能体：A1, A2。
-        有 2 个未完成的任务：T1 = Chop(Tomato), T2 = Chop(Lettuce)。
-        some_probs 经过初始生成和剪枝后，包含以下两种可能的分配方案，初始概率（均匀）均为 0.5：
-        alloc1 = [(T1, (A1,)), (T2, (A2,))] (A1 切番茄, A2 切生菜)
-        alloc2 = [(T1, (A2,)), (T2, (A1,))] (A2 切番茄, A1 切生菜)
-        假设 get_lower_bound_for_subtask_alloc 返回的成本如下 ：
-        Cost(A1 执行 T1) = 10
-        Cost(A2 执行 T2) = 20
-        Cost(A2 执行 T1) = 15
-        Cost(A1 执行 T2) = 12
-          
-        计算过程:
-
-        处理 alloc1 = [(T1, (A1,)), (T2, (A2,))]:
-
-        t = (T1, (A1,)): Cost = 10, Inverse Cost = 1/10 = 0.1
-        t = (T2, (A2,)): Cost = 20, Inverse Cost = 1/20 = 0.05
-        total_weight = 0.1 + 0.05 = 0.15
-        内层循环结束时，最后一个 t 是 (T2, (A2,))。len(t) = 2。
-        factor = 2 
-        2   ×0.15=4×0.15=0.6    
-        some_probs.update(alloc1, factor=0.6)。 alloc1 的权重变为 0.5×0.6=0.3 。   
-        处理 alloc2 = [(T1, (A2,)), (T2, (A1,))]:
-
-        t = (T1, (A2,)): Cost = 15, Inverse Cost = 1/15 ≈ 0.0667
-        t = (T2, (A1,)): Cost = 12, Inverse Cost = 1/12 ≈ 0.0833
-        total_weight ≈ 0.0667 + 0.0833 = 0.15
-        内层循环结束时，最后一个 t 是 (T2, (A1,))。len(t) = 2。
-        factor = 2 
-        2   ×0.15=4×0.15=0.6    
-        some_probs.update(alloc2, factor=0.6)。 alloc2 的权重变为 0.5×0.6=0.3 。
-                
+        # 遍历 some_probs 中所有可能的子任务分配方案 (subtask_alloc) 
         """
         for subtask_alloc in some_probs.enumerate_subtask_allocs():
             total_weight = 0 
             for t in subtask_alloc:
-                if t.subtask is not None:
-                    '''   --- 注意：下面的权重因子计算可能与注释意图不符 ---
-                    # 原始注释是 "Weight by number of nonzero subtasks." (根据非空子任务的数量加权)
-                    # 但实际代码使用了 `len(t)**2`。这里的 `t` 是内层循环最后处理的任务指派。
-                    # `len(t)` 对于 SubtaskAllocation 命名元组总是返回 2 （因为它有两个字段：subtask 和 subtask_agent_names）。
-                    # 因此，实际的因子是 4 * total_weight。
-                    #
-                    # 一个更符合注释意图的实现可能是计算 subtask_alloc 中非 None 任务的数量 num_active_tasks，
-                    # 然后使用类似 num_active_tasks**2 * total_weight 作为因子。
-                    '''
-                    total_weight += 1.0 / float(self.get_lower_bound_for_subtask_alloc(
+                if t.subtask is not None:     
+                    lower_bound_cost  =  float(self.get_lower_bound_for_subtask_alloc(
                         obs=copy.copy(obs),
                         subtask=t.subtask,
                         subtask_agent_names=t.subtask_agent_names))
+                    total_weight += 1.0 /  float(lower_bound_cost)
             # Weight by number of nonzero subtasks.
             some_probs.update(
                     subtask_alloc=subtask_alloc,
@@ -434,7 +351,7 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
 
     def get_appropriate_state_and_other_agent_planners(self,
             obs_tm1, backup_subtask, no_level_1):
-        """Return Level 1 planner if no_level_1 is False, otherwise
+        """Return Level 1 planner if no level_1 is False, otherwise
         return a Level 0 Planner."""
         # Get appropriate observation.
         ''' Level 0 规划 : 直接使用上一步的观察 obs_tm1 作为状态 ,   # 假设其他智能体是固定的（不进行预测）'''
@@ -470,7 +387,7 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
             subtask_agent_names: Tuple of agent str names, of agents who perform subtask.
                 subtask and subtask_agent_names make up subtask allocation.
             beta: Beta float value for softmax function.
-            no_level_1: Bool, whether to turn off level-k planning.
+            no level_1: Bool, whether to turn off level-k planning.
         Returns:
             A float probability update of whether agents in subtask_agent_names are
             performing subtask.
@@ -479,142 +396,42 @@ none_action_prob: 用于信念更新的参数，表示当分配的子任务为 N
         计算在给定上一个观察(obs_tm1)和上一个动作(actions_tm1)的情况下，
         假设智能体组 (subtask_agent_names) 正在执行子任务 (subtask) 时，
         他们采取这些实际动作的概率（似然）。
+        这个函数是贝叶斯委托算法进行“意图推断”的关键所在，体现了逆向规划 (Inverse Planning) 的思想。
+        它的核心目标不是决定下一步该做什么，而是评估刚刚过去的动作有多大概率是由某个**假设的目标（子任务）**驱动的。
+        
 
         Args:
-            obs_tm1: 环境对象副本，代表 t-1 时刻的环境状态。
-            actions_tm1: 智能体动作字典，映射智能体名称到其在 t-1 时刻采取的动作元组。
-            subtask: 要进行推断的目标子任务对象。
-            subtask_agent_names: 执行该子任务的智能体名称元组。
-                                subtask 和 subtask_agent_names 共同构成一个任务分配假设。
+            obs_tm1: 环境对象副本，代表 t-1 时刻的环境状态  S t-1
+            actions_tm1: 智能体动作字典，映射智能体名称到其在 t-1 时刻采取的动作元组  A t-1
+            subtask: 一个假设的子任务。这是我们正在检验的可能性
+            subtask_agent_names:  执行这个假设子任务的智能体。可能是一个智能体，也可能是两个（合作）。
             beta: Softmax 函数中的 beta 值（理性参数）。beta 越大，越倾向于选择最优动作。
-            no_level_1: 布尔值，是否关闭 Level-1 规划（即执行 Level-0 规划）。
+            no level_1: 布尔值，是否关闭 Level-1 规划（即执行 Level-0 规划）。
 
         Returns:
-            float: 一个概率值，表示在给定子任务假设下观测到实际动作的可能性。
-                   这个值用于贝叶斯信念更新。
+            float: 一个浮点数，表示似然概率。即，“如果这些智能体真的在执行这个 subtask，那么他们刚才采取 actions_tm1 中对应动作的概率是多少？”
                    
-                   
-                   
-         if subtask is None: 的 代码的例子       
-            # --- 示例解释 (None 任务部分) ---
-            # 假设:
-            # obs_tm1: agent-1 在 (2,1)。周围有4个空格子可以移动。
-            # actions_tm1: {'agent-1': (0, 0)} (agent-1 实际原地不动)
-            # self.none_action_prob = 0.6
-            # beta = 1.0
-
-            # 目标: 计算假设 "agent-1 正在执行 None 任务" 的似然
-            # 调用: prob_nav_actions(obs_tm1, actions_tm1, None, ('agent-1',), 1.0, True)
-
-            # 执行流程 (None 部分):
-            # 1. subtask is None。
-            # 2. agent_name_doing_none = 'agent-1'。
-            # 3. get_single_actions 假设返回 5 个动作 [(0,0), (1,0), (-1,0), (0,1), (0,-1)]。
-            # 4. num_move_actions = 5 - 1 = 4。
-            # 5. move_action_prob = (1.0 - 0.6) / 4 = 0.4 / 4 = 0.1。
-            # 6. diffs = [0.6] + [0.1] * 4 = [0.6, 0.1, 0.1, 0.1, 0.1]。
-            # 7. softmax_diffs = softmax(1.0 * [0.6, 0.1, 0.1, 0.1, 0.1])。
-            #    计算 exp: [e^0.6, e^0.1, e^0.1, e^0.1, e^0.1] = [1.822, 1.105, 1.105, 1.105, 1.105]
-            #    求和: sum = 1.822 + 4 * 1.105 = 6.242
-            #    归一化: softmax_diffs = [0.292, 0.177, 0.177, 0.177, 0.177] (近似值)
-            # 8. 检查实际动作: actions_tm1['agent-1'] == (0, 0)，条件为 True。
-            # 9. 返回 softmax_diffs[0] = 0.292。
-
-            # 结论 (None 部分): 在假设 agent-1 无任务 (None) 的情况下，观察到它原地不动的概率大约是 0.292。
-
-            # 如果 actions_tm1['agent-1'] 是 (1,0) (向右移动)：
-            # 8. 检查实际动作: actions_tm1['agent-1'] == (0, 0)，条件为 False。
-            # 9. 进入 else 分支。
-            # 10. 返回 softmax_diffs[1] = 0.177。
-            # 结论 (None 部分): 在假设 agent-1 无任务 (None) 的情况下，观察到它向右移动的概率大约是 0.177。   
-                   
-            
-            
-            感觉这个有问题啊 ， 需要更加细致的打印了。。。
-            场景设置:
-
-智能体: agent-1 (我们自己), agent-2, agent-3。
-环境 (obs_tm1):
-agent-1 @ (2,1)
-agent-2 @ (5,1)
-agent-3 @ (5,5)
-番茄 (T) @ (6,1)
-生菜 (L) @ (0,1)
-砧板1 (C1) @ (2,5)
-砧板2 (C2) @ (4,5)
-盘子 (P) @ (0,5)
-实际动作 (actions_tm1):
-agent-1: (1, 0) (向右移动，靠近番茄)
-agent-2: (-1, 0) (向左移动，靠近生菜)
-agent-3: (0, -1) (向上移动)
-参数: beta = 1.0, no_level_1 = True (Level-0)
-目标: 计算假设 agent-2 正在 Chop(Lettuce) 的似然。
-
-调用: prob_nav_actions(obs_tm1, actions_tm1, Chop(Lettuce), ('agent-2',), 1.0, True)
-
-执行流程 (非 None 部分):
-
-提取实际动作:
-
-subtask_agent_names = ('agent-2',)
-action = actions_tm1['agent-2'] = (-1, 0) (A2 向左移动)。
-获取状态和规划器:
-
-state = obs_tm1, other_planners = {}。
-配置规划器:
-
-self.planner.set_settings(env=copy.copy(obs_tm1), subtask=Chop(Lettuce), subtask_agent_names=('agent-2',), other_planners={})。
-规划器配置为评估 agent-2 从 (5,1) 出发去拿生菜 L @ (0,1) 并送到砧板 C1 @ (2,5) 或 C2 @ (4,5) 的情况。
-计算实际动作的 Q 值 (old_q):
-
-old_q = self.planner.Q(state=obs_tm1, action=(-1, 0), value_f=self.planner.v_l)。
-动作 (-1, 0) 使 agent-2 从 (5,1) 移动到 (4,1)，更靠近生菜 L @ (0,1)。这是一个好动作。
-假设规划器计算出的 Q 值为 old_q = -12.0 (预期成本较低)。
-获取所有有效动作 (valid_nav_actions):
-
-agent-2 在 (5,1)。假设它可以向左、向上、向下、不动。向右是边界。
-valid_nav_actions = self.planner.get_actions(state_repr=obs_tm1.get_repr())
-假设返回 [(0,0), (-1,0), (0,1), (0,-1)] (顺序可能不同)。
-检查有效性:
-
-assert (-1, 0) in valid_nav_actions。通过。
-联合任务过滤:
-
-len(subtask_agent_names) 为 1，跳过。
-计算 Q 值差异 (qdiffs):
-
-我们需要计算 agent-2 在状态 (5,1) 下，以 Chop(Lettuce) 为目标时，其他动作的 Q 值。
-Q((-1,0)) = -12.0 (实际动作，最佳)
-假设其他 Q 值：
-Q((0,0)) = -14.0 (不动，原地等待成本增加)
-Q((0,1)) = -15.0 (向上，远离 L 和 C)
-Q((0,-1)) = -15.0 (向下，远离 L 和 C)
-计算 qdiffs = [old_q - Q(alt)]。假设 valid_nav_actions 的顺序是 [(0,0), (-1,0), (0,1), (0,-1)]：
-qdiffs[0] = -12.0 - (-14.0) = 2.0 (对应 (0,0))
-qdiffs[1] = -12.0 - (-12.0) = 0.0 (对应 (-1,0)，实际动作)
-qdiffs[2] = -12.0 - (-15.0) = 3.0 (对应 (0,1))
-qdiffs[3] = -12.0 - (-15.0) = 3.0 (对应 (0,-1))
-所以 qdiffs = [2.0, 0.0, 3.0, 3.0]。
-计算 softmax_diffs:
-
-softmax_diffs = softmax(beta * qdiffs) = softmax(1.0 * [2.0, 0.0, 3.0, 3.0])
-exp values: [e^2, e^0, e^3, e^3] = [7.389, 1.0, 20.086, 20.086]
-sum = 7.389 + 1.0 + 2 * 20.086 = 48.561
-softmax_diffs = [0.152, 0.021, 0.414, 0.414] (近似值)
-找到实际动作索引:
-
-实际动作是 (-1, 0)。在假设的 valid_nav_actions 顺序 [(0,0), (-1,0), (0,1), (0,-1)] 中，它的索引是 1。
-返回结果:
-
-return softmax_diffs[1] = 0.021。
+          
                    
         """
         
-        print("[BayesianDelgation.prob_nav_actions] Calculating probs for subtask {} by {}".format(str(subtask), ' & '.join(subtask_agent_names)))
+        print("[BayesianDelgation.prob nav_actions] Calculating probs for subtask {} by {}".format(str(subtask), ' & '.join(subtask_agent_names)))
         assert len(subtask_agent_names) == 1 or len(subtask_agent_names) == 2   # 断言：确保任务分配给 1 个或 2 个智能体
 
        
-        # --- 情况 1: 推断子任务为 None (假设智能体空闲或随机移动) ---
+        '''情况 1：假设的 subtask 是 None
+
+            意图: 计算假设智能体处于“空闲”或“无目标”状态时，其采取某个动作的概率。
+          
+            代码假设没有明确任务时，智能体倾向于原地不动 (0, 0)，但也有一定概率随机向周围移动。
+            它首先获取智能体所有可能的移动动作数量 num_actions（不包括原地不动）。
+            分配一个基础概率 self.none_action_prob (比如 0.6) 给原地不动 (0, 0)。
+            将剩余的概率 1.0 - self.none_action_prob 均匀分配给所有可能的移动动作 action_prob。
+            创建一个列表 diffs，包含原地不动的概率和所有移动动作的概率。
+            应用 Softmax: 对 diffs 列表乘以 beta 后应用 Softmax 函数 (sp.special.softmax(...))。Softmax 会将这些基础概率转换成一个真正的概率分布（总和为 1），并且会放大高概率选项（原地不动）的可能性，beta 控制放大的程度。
+            返回结果: 检查智能体实际采取的动作 actions_tm1[...]。
+            如果是 (0, 0)，就返回 Softmax 结果中对应 (0, 0) 的概率；
+            如果是其他移动动作，就返回 Softmax 结果中对应移动动作的概率（因为所有移动动作的基础概率相同，Softmax 后的概率也相同）'''
         if subtask is None:
             # 断言：不能有两个智能体 *一起* 被分配到 None 任务 (无协作意义)
             assert len(subtask_agent_names) != 2, "Two agents are doing None."
@@ -646,8 +463,35 @@ return softmax_diffs[1] = 0.021。
         # Perform inference over all non-None subtasks.
         # Calculate Q_{subtask}(obs_tm1, action) for all actions.
         # --- 情况 2: 推断子任务不是 None ---
-        # (注释同前一个回答)
-        # 获取每个 agent 的实际执行的动作
+        '''情况 2：假设的 subtask 不是 None (例如 Chop, Merge, Deliver)
+
+            意图: 计算假设智能体正在积极追求某个具体目标时，其采取某个动作的概率。这体现了“理性行为”假设：智能体倾向于采取能更快更好完成目标的动作。
+            逻辑（逆向规划核心）:
+            1 提取实际动作: 从 actions_tm1 中获取该假设涉及的智能体实际采取的动作 action。
+            2 配置规划器: 非常关键的一步！ 获取导航规划器 (self.planner，即 E2E_BRTDP 实例)，并调用 set_settings 方法。
+               告诉规划器：“请你现在假设自己（或这组智能体）的目标是这个 subtask，并且从状态 obs_tm1 开始”。 
+               这样配置后，规划器就能为这个假设的目标提供 Q 值估计。
+            3 计算实际动作的 Q 值: 使用配置好的规划器，计算智能体实际采取的动作 action 在状态 obs_tm1 下的 Q 值
+               （使用下界 v_l）：old_q = self.planner.Q(state=state, action=action, value_f=self.planner.v_l)。
+               这个 Q 值代表了，根据规划器的评估（假设目标是 subtask），这个实际动作有多“好”（成本有多低）。
+            4 获取所有可选动作: 获取在状态 obs_tm1 下，该智能体（或小组）所有可能的有效动作 valid_nav_actions。
+            5 计算 Q 值差异: 遍历所有可能的有效动作 nav_action，计算它们与实际采取动作 action 的 Q 值之差：
+               old_q - self.planner.Q(state=state, action=nav_action, value_f=self.planner.v_l)。得到一个差异列表 qdiffs。
+                对于实际采取的动作 action，这个差值为 0。
+                对于比实际动作更差的动作（Q 值更高/成本更高），差值为负数。
+                对于比实际动作更好的动作（Q 值更低/成本更低），差值为正数。
+            （注意：源码实现是 old_q - Q(alt)，如果 Q 代表成本，最优动作 Q 最小。那么 old_q - Q(alt)，对于比 old_q 更差的 alt (Q(alt)>old_q)，结果为负；对于更好的 alt (Q(alt)<old_q)，结果为正；对于 old_q 本身，结果为 0。Softmax 作用在 beta * qdiffs 上，意味着 beta > 0 时，Q 值越接近 old_q 或比 old_q 更好（qdiffs 接近 0 或为正）的动作，其 Softmax 概率越高。）
+            
+            6应用 Softmax: 对 qdiffs 列表乘以 beta 后应用 Softmax 函数 (sp.special.softmax(...))。
+              这将 Q 值差异转换成一个概率分布。
+            
+              如果实际采取的动作 action 确实是（根据规划器对假设 subtask 的评估）最优或接近最优的，
+              那么它的 qdiffs 值接近 0 或为正，其 Softmax 概率就会相对较高。
+              如果实际动作很差（qdiffs 为大的负数），其 Softmax 概率就会很低。
+           
+            beta 同样控制概率分布的集中程度。beta 越大，概率越集中在 Q 值最优（qdiffs 最大）的动作上。
+            返回结果: 找到实际采取的动作 action 在 valid_nav_actions 列表中的索引，然后返回 softmax_diffs 中对应索引处的概率值。
+            这个值就是我们计算出的似然度。 '''
         action = tuple([actions_tm1[a_name] for a_name in subtask_agent_names])
         if len(subtask_agent_names) == 1:
             action = action[0]
@@ -682,7 +526,8 @@ return softmax_diffs[1] = 0.021。
         qdiffs = [old_q - self.planner.Q(state=state, action=nav_action, value_f=self.planner.v_l)
                 for nav_action in valid_nav_actions]
         
-        #计算 Softmax 概率
+        #计算 Softmax 概率   
+        ''' 伪代码第18行的工具'''
         softmax_diffs = sp.special.softmax(beta * np.asarray(qdiffs))
        
         # 找到实际动作的索引，返回实际动作对应的 Softmax 概率  # Taking the softmax of the action actually taken.
@@ -707,16 +552,7 @@ return softmax_diffs[1] = 0.021。
         Returns:
             list: 一个列表，其中每个元素都是一个 *完整* 的子任务分配方案 (也是一个 SubtaskAllocation 对象的列表)，
                   这些方案都是在 base_subtask_alloc 基础上扩展得到的。
-
-        例子 (来自文档字符串):
-            如果 base_subtask_alloc = [SubtaskAllocation(subtask=Chop(T), subtask_agent_names=('agent-1', 'agent-2'))]
-            并且 remaining_agents = ['agent-3'], remaining_subtasks = [Chop(L), None]
-            那么此函数应该返回类似这样的列表：
-            [
-                [SubtaskAllocation(Chop(T), ('agent-1', 'agent-2')), SubtaskAllocation(Chop(L), ('agent-3',))],
-                [SubtaskAllocation(Chop(T), ('agent-1', 'agent-2')), SubtaskAllocation(None,    ('agent-3',))]
-            ]
-            
+   
             
             Return a list of subtask allocations to be added onto `subtask_allocs`.
 
@@ -793,50 +629,6 @@ return softmax_diffs[1] = 0.021。
         """
         这个函数是为 "bd" (Bayesian Delegation)、"up" (Uniform Priors) 和 "fb" (Fixed Beliefs) 模型生成子任务分配假设空间的核心方法，它会考虑所有理论上可能的分工与合作方式
         包括单个智能体独立完成任务、多个智能体合作完成同一个任务、以及智能体处于空闲（None）状态的所有组合
-        
-        
-        
-        假设:
-        3个智能体: self.all_agent_names = ['agent-1', 'agent-2', 'agent-3']
-        未完成任务: self.incomplete_subtasks = [Chop(T), Chop(L)]
-        
-        函数执行流程:
-        subtasks 列表是 [Chop(T), Chop(L)]。
-        进入 else 分支 (多于1个智能体)。
-        外层循环: 迭代智能体对。我们只看 first_agents = ('agent-1', 'agent-2') 这个组合
-        （其他组合如 ('agent-1', 'agent-3'), ('agent-2', 'agent-3') 会类似地处理）。
-        subtasks_temp 变为 [Chop(T), Chop(L), None, None]。
-        
-        内层循环 - 合作式:
-        
-            当 t = Chop(T):
-                基础分配 base = [SubtaskAllocation(subtask=Chop(T), subtask_agent_names=('agent-1', 'agent-2'))] (A1和A2合作切T)
-                remaining_agents = ['agent-3'], remaining_subtasks = [Chop(L), None, None]
-                调用 get_other_subtask_allocations(remaining_agents=['agent-3'], remaining_subtasks=[Chop(L), None, None], base_subtask_alloc=base):
-                因为只剩一个 agent-3，它会被分配到 remaining_subtasks 中的每一个。
-                生成:
-                alloc1_1 = [SubtaskAllocation(subtask=Chop(T), agents=(A1,A2)), SubtaskAllocation(subtask=Chop(L), agents=(A3,))]
-                alloc1_2 = [SubtaskAllocation(subtask=Chop(T), agents=(A1,A2)), SubtaskAllocation(subtask=None,     agents=(A3,))] (因为有两个None, 这里会生成两个一样的，后续可能会被处理或视为一个)
-            
-            当 t = Chop(L): 类似地，A1和A2合作切L，A3做剩下的 (Chop(T) 或 None)。
-            
-            当 t = None: A1和A2合作啥也不干，A3做剩下的 (Chop(T) 或 Chop(L))。
-        
-        内层循环 - 分工式:
-            当 ts = (Chop(T), Chop(L)):
-                基础分配 base = [SubtaskAllocation(subtask=Chop(T), agents=(A1,)), SubtaskAllocation(subtask=Chop(L), agents=(A2,))] (A1切T, A2切L)
-                remaining_agents = ['agent-3'], remaining_subtasks = [None, None]
-                调用 get_other_subtask_allocations(...):
-                只剩一个 agent-3，只能分配 None。
-                生成: alloc2_1 = [SubtaskAllocation(subtask=Chop(T), agents=(A1,)), SubtaskAllocation(subtask=Chop(L), agents=(A2,)), SubtaskAllocation(subtask=None, agents=(A3,))]
-            当 ts = (Chop(L), Chop(T)): 类似，A1切L, A2切T, A3闲置。
-            当 ts = (Chop(T), None): A1切T, A2闲置, A3做剩下的 (Chop(L) 或 None)。
-            当 ts = (None, Chop(T)): A1闲置, A2切T, A3做剩下的 (Chop(L) 或 None)。
-            其他 ts 的组合。
-                
-        
-        
-        
         Return the entire distribution of subtask allocations."""
         subtask_allocs = []
 
@@ -846,12 +638,14 @@ return softmax_diffs[1] = 0.021。
         '''处理单智能体情况 (Base Case): 如果只有一个智能体 (len(self.all_agent_names) == 1)，逻辑很简单：对于每个未完成的子任务 t，直接创建一个分配，将该任务分配给这个唯一的智能体 
           Just one agent: Assign itself to all subtasks.'''
         if len(self.all_agent_names) == 1:
+            print(f"\nadd_subtasks : Single agent case: len(self.all_agent_names) == 1")
             for t in subtasks:
                 subtask_alloc = [SubtaskAllocation(subtask=t, subtask_agent_names=tuple(self.all_agent_names))]
-
                 subtask_allocs.append(subtask_alloc)
+                print(f"  [add_subtasks] Agent: {self.agent_name}, Single Agent Task: {t}")
+                
         else:
-            
+            print(f"\nnadd_subtasks : Multi-agent case: len(self.all_agent_names) > 1")
             
             for first_agents in combinations(self.all_agent_names, 2):
                 # Temporarily add Nones, to allow agents to be allocated no subtask.
@@ -859,15 +653,16 @@ return softmax_diffs[1] = 0.021。
                 subtasks_temp = subtasks + [None for _ in range(len(self.all_agent_names) - 1)]
                
                
-                # Cooperative subtasks (same subtask assigned to agents).
+                ''' Cooperative subtasks (same subtask assigned to agents).'''
                 for t in subtasks_temp:
                     subtask_alloc = [SubtaskAllocation(subtask=t, subtask_agent_names=tuple(first_agents))]
                     remaining_agents = sorted(list(set(self.all_agent_names) - set(first_agents)))
                     remaining_subtasks = list(set(subtasks_temp) - set([t]))
-                    subtask_allocs += self.get_other_subtask_allocations(
+                    new_subtask_allocs  = self.get_other_subtask_allocations(
                             remaining_agents=remaining_agents,
                             remaining_subtasks=remaining_subtasks,
                             base_subtask_alloc=subtask_alloc)
+                    subtask_allocs += new_subtask_allocs
                 # Divide and Conquer subtasks (different subtask assigned to remaining agents).
                 '''for ts in permutations(subtasks_temp, 2):: 遍历从 subtasks_temp 中选出的两个不同任务 ts[0] 和 ts[1] 的所有排列。
                 subtask_alloc = [...]: 创建一个基础分配，  让 first_agents 中的第一个智能体执行 ts[0]，第二个智能体执行 ts[1]。 
@@ -878,11 +673,12 @@ return softmax_diffs[1] = 0.021。
                                 SubtaskAllocation(subtask=ts[0], subtask_agent_names=(first_agents[0],)),
                                 SubtaskAllocation(subtask=ts[1], subtask_agent_names=(first_agents[1],)),]
                         remaining_agents = sorted(list(set(self.all_agent_names) - set(first_agents)))
-                        remaining_subtasks = list(set(subtasks_temp) - set(ts))
-                        subtask_allocs += self.get_other_subtask_allocations(
+                        remaining_subtasks = list(set(subtasks_temp) - set(ts)) 
+                        new_subtask_allocs = self.get_other_subtask_allocations(
                                 remaining_agents=remaining_agents,
                                 remaining_subtasks=remaining_subtasks,
                                 base_subtask_alloc=subtask_alloc)
+                        subtask_allocs += new_subtask_allocs
         return SubtaskAllocDistribution(subtask_allocs)
 
 

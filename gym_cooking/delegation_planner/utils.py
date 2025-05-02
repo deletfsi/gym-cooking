@@ -68,7 +68,7 @@ class SubtaskAllocDistribution():
                 # 方案4: A1空闲, A2切T, A3切L     (A1None, A2T1, A3T2): 0.1
             }
             # 注意：总概率 0.4 + 0.3 + 0.2 + 0.1 = 1.0
-            执行 distribution.get_max_bucketed('A1') 的详细步骤
+            执行 distribution.get max_bucketed('A1') 的详细步骤
 
             初始化:
 
@@ -127,12 +127,12 @@ class SubtaskAllocDistribution():
 
             best_index = np.argmax(valid_p) = np.argmax([0.4, 0.2]) = （下标）0。
             返回 valid_subtask_allocs[0]，也就是方案1的元组 (A1T1, A2T2, A3T3)。
-            最终返回: get_max_bucketed('A1') 返回方案1的元组：
+            最终返回: get max_bucketed('A1') 返回方案1的元组：
             (SubtaskAllocation(subtask=recipe.Chop('Tomato'), subtask_agent_names=('A1',)), SubtaskAllocation(subtask=recipe.Chop('Lettuce'), subtask_agent_names=('A2',)), SubtaskAllocation(subtask=recipe.Get('Plate'), subtask_agent_names=('A3',)))
 
             总结:
 
-            在这个3智能体的例子中，get_max_bucketed('A1') 首先计算出 A1 做 Chop(Tomato) 的边际概率是 0.6 (来自方案1和方案3)，做 Chop(Lettuce) 的边际概率是 0.3 (来自方案2)，
+            在这个3智能体的例子中，get max_bucketed('A1') 首先计算出 A1 做 Chop(Tomato) 的边际概率是 0.6 (来自方案1和方案3)，做 Chop(Lettuce) 的边际概率是 0.3 (来自方案2)，
             空闲的边际概率是 0.1 (来自方案4)。因为 0.6 是最高的，所以该方法确定 A1 最可能是在 Chop(Tomato)。
             然后，它在所有包含 A1 做 Chop(Tomato) 的完整方案（即方案1和方案3）中，找到了本身概率最高的那个方案，也就是方案1（概率0.4 > 方案3的概率0.2）。因此，最终返回了方案1。
         """
@@ -184,7 +184,8 @@ class SubtaskAllocDistribution():
             print('subtask_alloc {} not found in probsdict'.format(subtask_alloc))
 
     def normalize(self):
-        total = sum(self.probs.values())
+        ''' #这个是 prune 剪枝之前的算出来的值， 很多 subtask 的组合被剪枝了要重新算'''
+        total = sum(self.probs.values())  
         for subtask_alloc in self.probs.keys():
             if total == 0:
                 self.probs[subtask_alloc] = 1./len(self.probs)

@@ -50,7 +50,7 @@ class E2E_BRTDP:
             alpha (float): BRTDP 收敛标准。当值函数上界和下界之差小于 alpha 时，认为已收敛。 
             tau (float): BRTDP 归一化常数，用于 run SampleTrial 中的终止条件检查。 
             cap (int): BRTDP 在单次 run SampleTrial 探索中的最大步数（ rollout cap）。防止无限循环或过长探索。 
-            main_cap (int): BRTDP 主循环 (main) 的最大迭代次数。
+            main_cap (int): BRTDP 主循环 (Main) 的最大迭代次数。
             
         Initializes BRTDP algorithm with its hyper-parameters.
         Rf. BRTDP paper for how these hyper-parameters are used in their
@@ -62,7 +62,7 @@ class E2E_BRTDP:
             alpha: BRTDP convergence criteria.
             tau: BRTDP normalization constant.
             cap: BRTDP cap on sample trial rollouts.
-            main_cap: BRTDP main cap on its main loop.
+            main_cap: BRTDP Main cap on its Main loop.
         """
         self.alpha = alpha
         self.tau = tau
@@ -214,11 +214,38 @@ class E2E_BRTDP:
 
 
     def runSampleTrial(self):
-        """调用 self.main() 的目的是驱动 BRTDP 算法进行更多的探索和值函数更新，
-        特别是在算法检测到当前最优路径可能通往一个价值估计不确定的区域时。
-        通过运行 self.main()（内部调用 runSampleTrial），算法可以收紧 并且 《更新》   值函数边界 (V_L, V_U)，
-        从而提高后续基于 V_L 选择动作的可靠性和最优性。
-        run SampleTrial from BRTDP paper."""
+        """
+        get next_action 方法会在决定最终动作 之前，检查是否需要调用 Main（进而调用 runSampleTrial）来进行更多的探索和值更新。
+        触发条件是 B > diff，即预测的下一步状态的不确定性 (B) 相对于起始状态的不确定性 (diff) 来说过高。   
+        
+        run SampleTrial 执行一次从起始状态开始的模拟轨迹探索，并在过程中和结束时更新状态值函数的上下界 (V_l , V_u)
+        
+        前向探索 (Forward Pass / Simulation):
+            模拟智能体从当前规划起点 (self.start) 出发，遵循当前的“最优”策略（基于V_l）进行一系列决策，生成一条状态-动作轨迹。
+            循环执行，每次选择一个动作 a，这个动作是基于当前状态 (modified_state) 的 Q_l 值最小的那个动作 (argmin Q_L)。
+            这代表了根据当前最乐观的估计（最低成本）应该采取的行动。
+            记录下经过的每一个状态 x 到 traj 栈中。
+            发现新状态: 如果探索中遇到之前未访问过的状态，会调用 repr_init 和 value_init 来初始化其表示和价值边界.
+        
+        在线价值更新:
+            更新上界 (V U ​ ): 对于当前状态 modified_state，计算所有可选动作 a 的 Q U ​ (modified_state,a) 值，
+            并取其中的最小值作为新的 V U ​ (modified_state)。
+            更新下界 (V L ​ ): 对于当前状态 modified_state，计算根据 V L ​ 选择出的那个最优动作 a 的 Q L ​ (modified_state,a) 值，
+            并将这个值直接赋给 V L ​ (modified_state)。 
+        
+        智能终止探索:
+            计算根据当前策略选择的动作 a 会导向的下一个状态的不确定性 B=V U ​ (s ′ ) − V L ​ (s ′ )
+            计算整个规划过程起始点 (self.start) 的归一化不确定性 diff=(V U ​ (start)−V L ​ (start))/τ
+            判断: 如果 B≤diff，意味着按照当前最优动作走一步后，到达的状态其价值估计的区间宽度（不确定性 B）
+            相对于整个问题的初始不确定性（diff）来说已经足够小了。
+            此时，继续沿着这条路径深入探索对于改善起始点的决策可能帮助不大，因此 提前终止 当前的 run SampleTrial
+        
+        反向更新：
+            将探索过程中获得的（可能更精确的）价值信息从轨迹的末端反向传播回路径上的所有状态。这是价值迭代的关键步骤
+            对于弹出的每个状态 x，重新计算其 V U ​ (x) 和 V L ​ (x)。计算方式同第 2 步中的在线更新：
+            V U ​ (x)=min a ​ Q U ​ (x,a) 和 V L ​ (x)=min a ​ Q L ​ (x,a) 
+            （注意这里是对所有动作取 minQ L ​ 来更新 V L ​ ，这与前向探索中只用选定动作的 Q L ​ 不同，这更像是标准的价值迭代回溯）。
+        """
         start_time = time.time()
         x = self.start
         
@@ -319,7 +346,10 @@ class E2E_BRTDP:
 
 
     def main(self):
-        """Main loop function for BRTDP."""
+        """Main loop function for BRTDP.
+        main 函数的主要目的是 迭代地优化和收紧当前规划问题 起始状态 (self.start) 的价值估计
+        （具体来说是价值函数的上界 V U ​ 和下界 V L ​ ），直到这两个界限足够接近（收敛）
+        """
         main_counter = 0
         start_repr = self.start.get_repr()
 
@@ -331,10 +361,10 @@ class E2E_BRTDP:
         '''# --- 主循环 ---
         # 持续运行，直到满足以下任一条件：
         # 1. 起始状态的上下界之差 diff 小于或等于收敛阈值 self.alpha。
-        # 2. 主循环迭代次数 main_counter 达到上限 self.main_cap。
+        # 2. 主循环迭代次数 mai counter 达到上限 self.main_cap。
         Run until convergence or until you max out on iteration  '''  
         while (diff > self.alpha) and (main_counter < self.main_cap):
-            print('\nstarting main loop #', main_counter)
+            print('\nstarting  Main loop #', main_counter)
             new_upper = self.v_u[(start_repr, self.subtask)]
             new_lower = self.v_l[(start_repr, self.subtask)]
             new_diff = new_upper - new_lower
@@ -359,15 +389,15 @@ class E2E_BRTDP:
 
     def _configure_planner_level(self, env, subtask_agent_names, other_agent_planners):
         """
-         如果 other_agent_planners 是一个空字典，则此规划器应为 Level 0 规划器，
+         如果 other agent_planners 是一个空字典，则此规划器应为 Level 0 规划器，
         并在 env 的本地副本中移除所有不相关的智能体 (将它们视为静态障碍)。
 
-        否则 (other_agent_planners 非空)，它应该是一个 Level 1 规划器，
+        否则 (other agent_planners 非空)，它应该是一个 Level 1 规划器，
         保留所有智能体，并维护这些智能体的规划器 (这些规划器已经被配置为我们认为它们正在执行的子任务)。
         
         Configure the planner s.t. it best responds to other agents as needed.
 
-        If other_agent_planners is an emtpy dict, then this planner should
+        If other agent_planners is an emtpy dict, then this planner should
         be a level-0 planner and remove all irrelevant agents in env.
 
         Otherwise, it should keep all agents and maintain their planners
@@ -377,7 +407,7 @@ class E2E_BRTDP:
         # --- Level 1 规划器 ---
         # 如果提供了其他智能体的规划器字典 (非空) 
         if other_agent_planners:
-            self.planner_level = PlannerLevel.LEVEL1
+            self.planner_level = PlannerLevel.LEVEL1 ################## 在这里设置了 level 1 
             self.other_agent_planners = other_agent_planners
         # Level 0 Planner.
         else:
@@ -470,8 +500,8 @@ class E2E_BRTDP:
         # Termination condition is when desired object is at a Deliver location.
         elif isinstance(subtask, Deliver):
             '''  # --- 计算初始状态 ---
-            # self.subtask_action_obj: 在 set_settings 中已设置，代表 Delivery 格子对象。
-            # self.goal_obj: 在 set_settings 中已设置，代表需要递送的物品对象 (e.g., Object('Plate-Tomato'))。
+            # self.subtask_action_obj: 在 set settings 中已设置，代表 Delivery 格子对象。
+            # self.goal_obj: 在  set settings 中已设置，代表需要递送的物品对象 (e.g., Object('Plate-Tomato'))。
 
             # 计算在 *开始规划时*，有多少个 *未被持有* 的目标物品 (self.goal_obj) 位于递送点 (self.subtask_action_obj) 的位置上。
             # env.world.get_all_object_locs(self.subtask_action_obj): 获取所有递送点的位置列表。
@@ -529,7 +559,7 @@ class E2E_BRTDP:
                 
                 
             ''' --- 计算初始状态 ---
-            # self.goal_obj: 在 set_settings 中已设置，代表任务完成时期望得到的物品对象
+            # self.goal_obj: 在 set settings 中已设置，代表任务完成时期望得到的物品对象
             #               (e.g., 对于 Chop('Tomato')，是 Object('ChoppedTomato');
             #                对于 Merge('Tomato', 'Plate')，是 Object('Plate-Tomato'))。
             # 计算在 *开始规划时*，世界上目标物品的总数 (无论是否被持有)。
@@ -588,7 +618,7 @@ class E2E_BRTDP:
             env (OvercookedEnvironment): 当前的环境状态对象。
             subtask (Action or None): 要规划的子任务。
             subtask_agent_names (tuple): 分配执行此子任务的智能体名称元组。
-            other_agent_planners (dict, optional):
+            other agent_planners (dict, optional):
                 一个字典，映射其他智能体名称到他们的规划器实例。
                 如果提供 (非空)，则启用 Level 1 规划，考虑其他智能体的预测行为。
                 如果为空 (默认)，则执行 Level 0 规划，将其他智能体视为静态。
@@ -599,8 +629,8 @@ class E2E_BRTDP:
         
         ''' # 1. 配置规划器级别 (Level 0 或 Level 1)
         #    调用内部方法 _configure_ planner_level。
-        #    - 如果 other_agent_planners 非空，则设置为 Level 1，并存储其他智能体的规划器。
-        #    - 如果 other_agent_planners 为空，则设置为 Level 0，并在 env 的副本中移除其他智能体
+        #    - 如果 other agent_planners 非空，则设置为 Level 1，并存储其他智能体的规划器。
+        #    - 如果 other agent_planners 为空，则设置为 Level 0，并在 env 的副本中移除其他智能体
         #      (将其位置替换为 AgentCounter 障碍物)，可能记录被移除的持有物到 self.removed_object。
         #      Configuring the planner level.'''
         self._configure_planner_level(
@@ -693,7 +723,7 @@ class E2E_BRTDP:
             return
 
         '''--- 计算启发式下界 (lower) ---
-        # 调用环境状态对象的 get_lower_bound_for_subtask_given_objs 方法。
+        # 调用环境状态对象的 get lower_bound_for_subtask_given_objs 方法。
         # 这个方法会根据当前子任务、执行智能体、起始/目标物品等信息，
         # 利用预计算的距离（或曼哈顿距离等启发式）估算完成该子任务所需的最短路径成本（距离下界）。[cite: 452]
         # 这个距离是完成任务的理论最小步数的一种估计。
@@ -775,6 +805,10 @@ class E2E_BRTDP:
         ns_repr = self.repr_init(env_state=next_state)
         self.value_init(env_state=next_state)
 
+        ''''expected_value = value_f[(ns_repr, ...)]：查找 value_f 字典（比如 self.v_l）中，
+        键为 (ns_repr, self.subtask) 对应的值。因为 ns_repr 代表的是“原地踏步”的状态，这个状态离最终目标还很远，
+        所以它在字典中存储的预估未来成本（cost-to-go）值本身就比较高。
+        这个值是之前通过 run SampleTrial 的回溯更新或者 value_init 的启发式得到的，不是因为这次模拟碰撞而实时变高的。'''
         expected_value = 1.0 * value_f[(ns_repr, self.subtask)]
         return float(cost + expected_value)
 
@@ -814,7 +848,7 @@ class E2E_BRTDP:
 
 
     def cost(self, state, action):
-        """Return cost of taking action in this state."""
+        """Return Cost of taking action in this state."""
         cost = self.time_cost
         if isinstance(action[0], int):
             action = tuple([action])
@@ -831,7 +865,7 @@ class E2E_BRTDP:
     def get_expected_diff(self, start_state, action):
         """
         计算在状态 start_state 执行动作 action 后，到达的下一个状态 s_ 的值函数上界和下界之差 (V_U(s_) - V_L(s_))。
-        在 BRTDP 算法中，这个差值 B 用于判断是否需要继续探索 (runSampleTrial)。 Get next state."""
+        在 BRTDP 算法中，这个差值 B 用于判断是否需要继续探索 (run SampleTrial)。 Get next state."""
         
         '''获取下一个状态 #    使用 self.T 方法计算执行动作 action 后的下一个状态 s_。'''
         s_ = self.T(state_repr=start_state.get_repr(), action=action)
@@ -854,7 +888,7 @@ class E2E_BRTDP:
         这个方法实现了论文 [cite: 203, 204, 205] 中描述的 Level-k 规划思想（这里具体是 Level-1）。
 
         - Level 0 规划: 不考虑其他智能体，直接返回原始状态 state 的副本。
-        - Level 1 规划: 预测其他智能体 (根据 self.other_agent_planners) 最可能执行的动作，
+        - Level 1 规划: 预测其他智能体 (根据 self.other agent_planners) 最可能执行的动作，
                        并将这些动作应用到 state 的一个副本上，生成一个 "修改后" 的状态 modified_state。
                        这个 modified_state 反映了对其他智能体一步行为的预期。
 
@@ -868,92 +902,40 @@ class E2E_BRTDP:
                                                  对于 Level 0，此字典为空。
         
         Do nothing if the planner level is level 0.
-
-        Otherwise, using self.other_agent_planners, anticipate what other agents will do
-        and modify the state appropriately.
-
-        Returns the modified state and the actions of other agents that triggered
-        the change.
-        
-        
-        
-        场景设定:
-
-        当前智能体: agent-1 (正在执行 Level 1 规划)。
-        其他智能体: agent-2, agent-3。
-        agent-1 的信念: agent-1 当前最相信的任务分配是：
-        agent-1 自己去拿番茄 (Get(Tomato))。
-        agent-2 去切生菜 (Chop(Lettuce))。
-        agent-3 去拿盘子 (Get(Plate))。
-        初始状态 state:
-        agent-1 在 (1, 1)。
-        agent-2 在 (3, 1)，旁边是生菜和切板。
-        agent-3 在 (5, 1)，旁边是盘子。
-        传入参数: self.other_agent_planners = {'agent-2': agent-2_planner, 'agent-3': agent-3_planner}，其中：
-        agent-2_planner.subtask = Chop(Lettuce), .subtask_agent_names = ('agent-2',)
-        agent-3_planner.subtask = Get(Plate), .subtask_agent_names = ('agent-3',)
-        调用 _get _modified_state_with_other_agent_actions(state):
-
-        创建副本: modified_state = copy.copy(state)。
-        检查规划级别: 是 Level 1。
-        循环处理 agent-2:
-        重配置 agent-2_planner: 针对当前 state 和 Chop(Lettuce) 任务，强制 Level 0。
-        预测 agent-2 动作: agent-2 就在生菜旁边，最优动作很可能是与切板交互（假设拿起生菜或直接开始切），我们简化为 interact_lettuce = (0, 0) 或特定交互动作。
-        记录/应用: other_agent_actions['agent-2'] = interact_lettuce；在 modified_state 中设置 agent-2.action = interact_lettuce。
-        循环处理 agent-3:
-        重配置 agent-3_planner: 针对当前 state 和 Get(Plate) 任务，强制 Level 0。
-        预测 agent-3 动作: agent-3 就在盘子旁边，最优动作很可能是拿起盘子，我们简化为 interact_plate = (0, 0) 或特定交互动作。
-        记录/应用: other_agent_actions['agent-3'] = interact_plate；在 modified_state 中设置 agent-3.action = interact_plate。
-        初始化 modified_state: （如果需要）。
-        返回结果: 返回 modified_state（其中 agent-2 和 agent-3 的 action 都被设为他们各自最可能的动作）和 other_agent_actions = {'agent-2': interact_lettuce, 'agent-3': interact_plate}。
-        例子解释与影响:
-
-在这个三智能体例子中，agent-1 在规划自己去拿番茄的路径时，会使用那个预测了 agent-2 正在处理生菜、agent-3 
-正在处理盘子的 modified_state。这意味着 agent-1 的规划（Q值、V值计算）会基于一个假设：接下来的瞬间，agent-2 和 agent-3 
-都会执行他们各自任务的最优动作。这有助于 agent-1 避免与他们发生冲突，或者利用他们可能的移动来优化自己的路径。例如，如果 agent-3 拿盘子的动作是向某个方向移动，agent-1 就能预见到这一点。
-        
-        
+        Otherwise, using self.other agent_planners, anticipate what other agents will do and modify the state appropriately.
+        Returns the modified state and the actions of other agents that triggered the change.     
+       
+    在这个三智能体例子中，agent-1 在规划自己去拿番茄的路径时，会使用那个预测了 agent-2 正在处理生菜、agent-3 
+    正在处理盘子的 modified_state。这意味着 agent-1 的规划（Q值、V值计算）会基于一个假设：接下来的瞬间，agent-2 和 agent-3 
+    都会执行他们各自任务的最优动作。这有助于 agent-1 避免与他们发生冲突，或者利用他们可能的移动来优化自己的路径。例如，如果 agent-3 拿盘子的动作是向某个方向移动，agent-1 就能预见到这一点。 
         """
         modified_state = copy.copy(state)
         other_agent_actions = {}
 
-        ''' # 如果是 Level 0，不修改状态，直接返回原始状态的副本和空字典。
-           Do nothing if the planner level is 0.  '''
+        ''' # 如果是 Level 0，不修改状态，直接返回原始状态的副本和空字典   Do nothing if the planner level is 0.  '''
         if self.planner_level == PlannerLevel.LEVEL0:
             return modified_state, other_agent_actions
 
         
-        '''# 如果是 Level 1，需要预测并应用其他智能体的动作。
-        # self.other_agent_planners 是在 set_settings 中传入的，包含了其他智能体的规划器实例。
-        # 这些规划器实例已经由 BayesianDelegator 根据当前智能体的信念配置好了（即假设了其他智能体正在执行的任务）。
+        '''# 如果是 Level 1，需要预测并应用其他智能体的动作。 
         # Otherwise, modify the state because Level 1 planners consider the actions of other agents.'''
         for other_agent_name, other_planner in self.other_agent_planners.items():
             
             
             '''# --- 为其他智能体配置临时规划器 ---
-            # 目标是预测 other_agent 在 *当前状态 state* 下最可能做什么。
-            # 我们需要临时重置 other_planner 的起始状态为当前的 state，
-            # 但保持它被分配的任务 (other_planner.subtask) 和执行者 (other_planner.subtask_agent_names) 不变。
-            # 重要的是，在预测其他智能体的行为时，我们假设他们是 Level 0 的规划者
-            # (即他们不考虑我们当前智能体的行为，只基于当前状态规划自己的任务)。
-            # 因此，调用 set_settings 时传入空的 other_agent_planners={}。
-             
+            # 目标是预测 other_agent 在 *当前状态 state* 下最可能做什么。 
+            # 重要的是，在预测其他智能体的行为时，我们假设他们是 Level 0 的规划者 
               Keep their recipe subtask & subtask agent fixed, but change  their planner state to `state`. 
               These new planners should be level 0 planners.'''
             other_planner.set_settings(env=copy.copy(state),
                                        subtask=other_planner.subtask,
                                        subtask_agent_names=other_planner.subtask_agent_names)
-
+            ''' 对于我们自己，我们自己的agent 是 level 1 ， 考虑别的，把别人当成贪心的 level 0'''
             assert other_planner.planner_level == PlannerLevel.LEVEL0
 
-            '''# --- 预测其他智能体的贪婪动作 ---
-            # 获取 other_planner 在其 (重置后的) 起始状态下所有可能的动作。
-              Figure out what their most likely action is.'''
+            '''# --- 预测其他智能体的贪婪动作 ---'''
             possible_actions = other_planner.get_actions(state_repr=other_planner.start.get_repr())
-            
-            '''# 计算每个可能动作的 Q_L 值 (使用 other_planner 的 v_l)。
-            # 使用 argmin 选择具有最低 Q_L 值的动作，即根据下界估计最优的动作（贪婪动作）。
-            # 这是预测其他智能体理性行为的一种方式。'''
+             
             greedy_action = possible_actions[
                     argmin([other_planner.Q(state=other_planner.start,
                                             action=action,
@@ -969,9 +951,17 @@ class E2E_BRTDP:
                 greedy_action = greedy_action[other_planner.subtask_agent_names.index(other_agent_name)]
 
             '''  # --- 记录并应用预测的动作 ---
-            # 将预测出的 other_agent_name 的动作 greedy_action 存入字典。
-            # # Keep track of their actions.'''
+            # 将预测出的 other_agent_name 的动作 greedy_action 存入字典   # Keep track of their actions.'''
             other_agent_actions[other_agent_name] = greedy_action
+            
+            
+            ######################
+            ######################
+            '''在 modified_state 这个环境副本的智能体列表 (modified_state.sim_agents) 中，找到代表 other_agent_name 的那个 SimAgent 对象实例  我们将其称为 other_agent
+            设置动作属性: other_agent.action = greedy_action 这行代码直接修改了上一步找到的 other_agent 对象的 action 属性，将其设置为刚刚预测出来的 greedy_action
+            modified_state 的修改并不是改变了环境的布局 ，而是改变了包含在 modified_state 中的其他智能体（SimAgent 对象）的内部状态——具体来说，是设置了它们预期在下一步要执行的动作 (.action 属性)
+            这样一来，Level-1 智能体在规划自己的路径时，就能“预见到”其他智能体可能会如何移动（根据 Level-0 的贪心预测），从而可以规划出更有效的、能够避开潜在冲突或利用他人移动的路径
+            '''
             other_agent = list(filter(lambda a: a.name == other_agent_name,
                                       modified_state.sim_agents))[0]
             other_agent.action = greedy_action
@@ -991,7 +981,7 @@ class E2E_BRTDP:
         start_time = time.time()
 
         '''# === 步骤 1: 配置规划器 ===
-        # 调用 set_settings 方法，使用传入的参数全面配置规划器的内部状态。
+        # 调用  set settings 方法，使用传入的参数全面配置规划器的内部状态。
         # 这包括：设置规划级别(Level 0/1)、存储子任务信息(目标物品、交互对象等)、
         # 定义子任务完成条件(is_goal_state, is_subtask_complete)、
         # 配置规划空间(单智能体/联合)、重置内部计数器、设置起始状态(self.start)，
@@ -1006,7 +996,7 @@ class E2E_BRTDP:
         # 调用内部方法获取实际用于规划的状态 `cur_state`。
         # - Level 0: `cur_state` 是 `env` 的一个副本（可能移除了其他 agent）。
         # - Level 1: `cur_state` 是 `env` 的一个副本，但其中其他 agent 的 `action` 属性
-        #            已被 `_get _modified_state_with_other_agent_actions` 预测并设置好。
+        #            已被 `_get _modified_state_with_other_agent_actions` 预测并设置好。   #### 《=重点！！！！！！！！
         # `other_agent_actions` 存储了预测出的其他 agent 的动作（Level 1 时）或为空（Level 0 时）。
          Modify the state with other_agent_planners (Level 1 Planning).'''  
         cur_state, other_agent_actions = self._get_modified_state_with_other_agent_actions(state=self.start)
@@ -1014,7 +1004,7 @@ class E2E_BRTDP:
         ''' # === 步骤 3: BRTDP 核心逻辑 - 判断是否需要探索 ===
         # 这部分实现了 BRTDP 算法的一个关键决策点：是否需要运行一轮 SampleTrial 来更新值函数。
         获取当前规划状态 `cur_state` 下所有可能的动作 `actions`。
-        # BRTDP main loop.'''
+        # BRTDP Main loop.'''
         actions = self.get_actions(state_repr=cur_state.get_repr())
         action_index = argmin([
             self.Q(state=cur_state, action=a, value_f=self.v_l)
@@ -1035,11 +1025,11 @@ class E2E_BRTDP:
         self.cur_state = cur_state
         
         
-        '''决策：是否调用 BRTDP 主循环 (`self.main`) 进行探索和值更新？
+        '''决策：是否调用 BRTDP 主循环 (`self.Main`) 进行探索和值更新？
         #    条件 `B > diff` 的含义是：如果按照当前最优策略（基于 V_L）走一步后，
         #    到达的下一个状态的不确定性 (`B`) 比当前状态的归一化不确定性 (`diff`) 还要大，
         #    说明当前策略可能会引导到一个值函数边界很宽、估计很不准确的区域。
-        #    这种情况下，BRTDP 认为有必要进行一次或多次 SampleTrial（通过调用 `self.main`）
+        #    这种情况下，BRTDP 认为有必要进行一次或多次 SampleTrial（通过调用 `self.Main`）
         #    来探索这个区域，并通过回溯更新来收紧相关状态的值函数边界 V_L 和 V_U '''
         if (B > diff):
             print('exploring, B: {}, diff: {}'.format(B, diff))
@@ -1048,7 +1038,7 @@ class E2E_BRTDP:
 
 
         ''' === 步骤 4: 确定最终返回的动作 ===
-        # 无论是否执行了 self.main()，现在都需要根据（可能已更新的）V_L 来选择最终要执行的动作。'''
+        # 无论是否执行了 self.Main()，现在都需要根据（可能已更新的）V_L 来选择最终要执行的动作。'''
         
         '''检查当前规划状态 `cur_state` 是否已经是目标状态。 
         Determine best action after BRTDP.'''
@@ -1059,9 +1049,13 @@ class E2E_BRTDP:
         else:
             '''# 如果还未到达目标状态：
             # b. 再次获取当前规划状态 `cur_state` 下的所有可用动作。
-            #    （如果在 self.main() 中状态发生了模拟演进，这里获取的是演进后状态的动作，
-            #     但从代码看 self.main() 结束后似乎没有更新 cur_state，所以这里获取的仍是原始 cur_state 的动作）。'''
+            #    （如果在 self.Main() 中状态发生了模拟演进，这里获取的是演进后状态的动作，
+            #     但从代码看 self.Main() 结束后似乎没有更新 cur_state，所以这里获取的仍是原始 cur_state 的动作）。'''
             actions = self.get_actions(state_repr=cur_state.get_repr())
+            
+            ''' 对每个可能动作 a，计算其 Q 值。
+               关键：Q 值计算使用 cur_state，因此模拟 T(cur_state, a) 时会考虑预测碰撞。
+              导致预测碰撞的动作 a 会得到很高的 Q 值 (成本高)。'''
             qvals = [self.Q(state=cur_state, action=a, value_f=self.v_l)
                     for a in actions]
             print([x for x in zip(actions, qvals)])

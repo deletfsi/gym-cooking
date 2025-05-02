@@ -100,7 +100,7 @@ class RealAgent:
         # 根据选择的子任务 (new_subtask) 和执行者，规划具体的导航动作
         self.plan(copy.copy(obs))
         
-         # self.action 已经被 plan() 方法更新为新规划出的动作
+         # self.action 已经被 Plan() 方法更新为新规划出的动作
         return self.action
 
 
@@ -236,7 +236,7 @@ class RealAgent:
                 else:
                     probs.append((1.0-self.none_action_prob)/(len(actions)-1))
             self.action = actions[np.random.choice(len(actions), p=probs)]
-        # Otherwise, plan accordingly.
+        # Otherwise, Plan accordingly.
         else:
             '''如果是 'greedy' 模型或者正在初始化先验，则不考虑其他智能体 (Level 0) ''' 
             if self.model_type == 'greedy' or initializing_priors:
@@ -257,13 +257,13 @@ class RealAgent:
 
 
             '''other_agent_planners 取决于 greedy 还是其他，
-            调用 E2E_BRTDP 的 get_next_action 方法进行规划'''
+            调用  BR TDP 的 get next_action 方法进行规划'''
             action = self.planner.get_next_action(
                     env=env, subtask=self.new_subtask,
                     subtask_agent_names=self.new_subtask_agent_names,
                     other_agent_planners=other_agent_planners)
 
-            # If joint subtask, pick your part of the simulated joint plan.
+            # If joint subtask, pick your part of the simulated joint Plan.
             if self.name not in self.new_subtask_agent_names and self.planner.is_joint:
                 self.action = action[0] #原地不动 
             else:
@@ -286,7 +286,7 @@ class RealAgent:
     def def_subtask_completion(self, env):
         '''
         例子 1: 子任务为 Chop(Tomato)
-        假设 RealAgent 的 self.new_subtask 被设置为 recipe.Chop('Tomato')。当 plan() 方法调用 def_subtask_completion(env) 时：
+        假设 RealAgent 的 self.new_subtask 被设置为 recipe.Chop('Tomato')。当 Plan() 方法调用 def_subtask_completion(env) 时：
                 
                 获取相关对象:
                     nav_utils.get_subtask_obj(subtask=recipe.Chop('Tomato')) 会返回:

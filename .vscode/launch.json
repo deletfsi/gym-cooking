@@ -1,7 +1,7 @@
 {
     "version": "0.2.0",
     "configurations": [
-        {
+        { 
             "name": "Debug Gym Cooking: DC+FB Salad", // 配置名称，可以自定义
             "type": "python",                      // 调试器类型
             "request": "launch",                   // 启动模式
@@ -9,15 +9,17 @@
             "console": "integratedTerminal",      // 输出到集成终端
             "args": [                              // 要传递的命令行参数列表
                 "--num-agents",
-                "2",
+                "3",
                 "--seed",
-                "1",
+                "5",
                 "--level",
-                "partial-divider_salad",
+                "partial-divider_tomato",   //  "partial-divider_salad", 
                 "--model1",
-                "dc",
+                "bd",
                 "--model2",
-                "fb" ,
+                "greedy" ,
+                "--model3",
+                "dc" ,
                 "--record"
             ],
             "justMyCode": true,                   // 仅调试你的代码（通常保持 true）

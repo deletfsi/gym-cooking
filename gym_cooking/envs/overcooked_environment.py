@@ -274,7 +274,7 @@ class OvercookedEnvironment(gym.Env):
 
         # Execute.
         '''执行导航/交互：根据最终确定的动作 (可能被碰撞修改过) 更新世界状态。
-        #    execute_navigation() 内部会为每个智能体调用 interact(agent, world)。
+        #    execute navigation() 内部会为每个智能体调用 interact(agent, world)。
         #    interact() 会根据智能体的动作和目标格子的状态来改变智能体的位置、
         #    持有物状态，以及世界中物品的状态 (例如拾取、放下、合并、切割)。'''
         self.execute_navigation()
@@ -294,7 +294,7 @@ class OvercookedEnvironment(gym.Env):
         或者是否达到最大时间步。'''
         done = self.done()
         
-        ''' reward() 方法通常很简单，如果回合成功结束 (self.successful 为 True)，返回 1，否则返回 0。'''
+        ''' Reward() 方法通常很简单，如果回合成功结束 (self.successful 为 True)，返回 1，否则返回 0。'''
         reward = self.reward()
         
         
@@ -366,7 +366,7 @@ class OvercookedEnvironment(gym.Env):
         """计算并返回当前时间步的奖励。
 
         这是一个稀疏奖励函数：只有在回合成功结束时才给予奖励。
-        对应论文 [cite: 141] 中提到的 R (reward function)。
+        对应论文 [cite: 141] 中提到的 R (Reward function)。
 
         Returns:
             int: 成功则返回 1，否则返回 0。
@@ -640,7 +640,7 @@ class OvercookedEnvironment(gym.Env):
         # Get current agent locations.
         agent_locs = [agent.location for agent in list(filter(lambda a: a.name in subtask_agent_names, self.sim_agents))]
        
-        '''# 调用 get_AB_locs_given_objs 函数，获取执行该子任务所需的两组关键位置列表：
+        '''# 调用 get AB_locs_given_objs 函数，获取执行该子任务所需的两组关键位置列表：
         # A_locs: 通常是起始物品的可能位置 (例如，新鲜番茄在哪？可能在地上，可能在某个智能体手上)。
         # B_locs: 通常是工具或目标地点的位置 (例如，砧板在哪？递送点在哪？另一个要合并的物品在哪？)。
         # 这个函数内部会处理单/双智能体、不同任务类型 (Chop/Deliver/Merge) 的情况。'''
